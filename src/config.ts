@@ -6,6 +6,9 @@ export class Config {
   public llmModel: string | undefined;
   public llmProvider: string;
   public llmBaseUrl: string | undefined;
+  public llmVertexProjectId: string | undefined;
+  public llmVertexLocation: string | undefined;
+  public llmVertexServiceAccountJson: string | undefined;
   public githubToken: string | undefined;
   public styleGuideRules: string | undefined;
   public githubApiUrl: string;
@@ -45,6 +48,11 @@ export class Config {
     const baseUrlFromInput = getInput("llm_base_url");
     this.llmBaseUrl = baseUrlFromEnv || baseUrlFromInput || undefined;
 
+    // Vertex AI configuration
+    this.llmVertexProjectId = process.env.LLM_VERTEX_PROJECT_ID;
+    this.llmVertexLocation = process.env.LLM_VERTEX_LOCATION || 'us-central1';
+    this.llmVertexServiceAccountJson = process.env.LLM_VERTEX_SERVICE_ACCOUNT_JSON;
+
     // SAP AI Core configuration
     this.sapAiCoreClientId = process.env.SAP_AI_CORE_CLIENT_ID;
     this.sapAiCoreClientSecret = process.env.SAP_AI_CORE_CLIENT_SECRET;
@@ -61,6 +69,21 @@ export class Config {
       throw new Error(
         "SAP AI Core configuration is not set. Please set SAP_AI_CORE_CLIENT_ID, SAP_AI_CORE_CLIENT_SECRET, SAP_AI_CORE_TOKEN_URL, and SAP_AI_CORE_BASE_URL."
       );
+    }
+
+    // Vertex AI configuration validation
+    const isVertexAi = this.llmProvider === AIProviderType.VERTEX_AI;
+    if (isVertexAi) {
+      if (!this.llmVertexProjectId) {
+        throw new Error(
+          "LLM_VERTEX_PROJECT_ID is not set. Required when LLM_PROVIDER=vertex-ai"
+        );
+      }
+      if (!this.llmVertexServiceAccountJson) {
+        throw new Error(
+          "LLM_VERTEX_SERVICE_ACCOUNT_JSON is not set. Required when LLM_PROVIDER=vertex-ai"
+        );
+      }
     }
 
     // GitHub Enterprise Server support
@@ -126,6 +149,9 @@ export default process.env.NODE_ENV === "test"
       sapAiResourceGroup: "default",
       githubApiUrl: "https://api.github.com",
       githubServerUrl: "https://github.com",
+      llmVertexProjectId: "mock-project",
+      llmVertexLocation: "us-central1",
+      llmVertexServiceAccountJson: '{"type":"service_account","project_id":"mock"}',
       loadInputs: jest.fn(),
     }
   : configInstance!;

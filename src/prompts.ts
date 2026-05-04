@@ -25,22 +25,22 @@ export type PullRequestSummary = {
 export async function runSummaryPrompt(
   pr: PullRequestSummaryPrompt
 ): Promise<PullRequestSummary> {
-  let systemPrompt = `You are a helpful assistant that summarizes Git Pull Requests (PRs).`;
+  let systemPrompt = `Eres un asistente útil que resume Pull Requests (PRs) de Git.`;
 
-  systemPrompt += `Your task is to provide a full description for the PR content - title, type, description and affected file summaries.\n`;
+  systemPrompt += `Tu tarea es proporcionar una descripción completa del contenido del PR: título, tipo, descripción y resúmenes de los archivos afectados.\n`;
 
   systemPrompt += `
-- Keep in mind that the 'Original title', 'Original description' and 'Commit messages' sections may be partial, simplistic, non-informative or out of date. Hence, compare them to the PR diff code, and use them only as a reference.
-- The generated title and description should prioritize the most significant changes.
-- When quoting variables or names from the code, use backticks (\`).
-- Return a summary for each single affected file or if there is nothing to summarize simply use the status of the change (ie. "New file").
-- Start the overview with a verb at past tense like "Started", "Commented", "Generated" etc...
+- Ten en cuenta que las secciones 'Original title', 'Original description' y 'Commit messages' pueden estar incompletas, ser simplistas, poco informativas o estar desactualizadas. Por lo tanto, compáralas con el código del diff del PR y úsalas solo como referencia.
+- El título y la descripción generados deben priorizar los cambios más significativos.
+- Al citar variables o nombres del código, usa backticks (\`).
+- Devuelve un resumen para cada archivo afectado individualmente, o si no hay nada que resumir, usa simplemente el estado del cambio (ej. "Archivo nuevo").
+- Comienza la descripción general con un verbo en pasado como "Inicio", "Agregó", "Generó", etc.
 
-IMPORTANT: Do not make assumptions about the code outside the diff. Do not assume variable could be optional if you don't see the type declaration. Do not suggest null checks unless you are sure this could lead to a runtime error.
+IMPORTANTE: No hagas suposiciones sobre el código fuera del diff. No asumas que una variable podría ser opcional si no ves su declaración de tipo. No sugieras verificaciones null a menos que estés seguro de que esto podría generar un error en tiempo de ejecución.
 \n`;
 
   let userPrompt = `
-Summarize the following PR:
+Resume el siguiente PR:
 
 <Original PR Title>${pr.prTitle}</Original PR Title>
 <Original PR Description>
@@ -58,7 +58,7 @@ ${pr.files.map((file) => `- ${file.status}: ${file.filename}`).join("\n")}
 ${pr.files.map((file) => formatFileDiff(file)).join("\n\n")}
 </File Diffs>
 
-Make sure each affected file is summarized and it's part of the returned JSON.
+Asegúrate de que cada archivo afectado esté resumido y sea parte del JSON devuelto.
 `;
 
   const fileSchema = z.object({
@@ -135,75 +135,74 @@ export async function runReviewPrompt(
 
 
   let systemPrompt = `
-<IMPORTANT INSTRUCTIONS>
-You are an experienced senior software engineer tasked with reviewing a Git Pull Request (PR). Your goal is to provide comments to improve code quality, catch typos, potential bugs or security issues, and provide meaningful code suggestions when applicable. You should not make comments about adding comments, about code formatting, about code style or give implementation suggestions.
-    
-The review should focus on new code added in the PR code diff (lines starting with '+') and be actionable.
- 
-The PR diff will have the following structure:
+<INSTRUCCIONES IMPORTANTES>
+Eres un ingeniero de software senior experimentado encargado de revisar un Pull Request (PR) de Git. Tu objetivo es proporcionar comentarios para mejorar la calidad del código, detectar errores tipográficos, posibles errores o problemas de seguridad, y ofrecer sugerencias de código significativas cuando corresponda. No debes hacer comentarios sobre agregar comentarios, formato de código, estilo de código ni sugerencias de implementación.
+
+La revisión debe centrarse en el nuevo código agregado en el diff del PR (líneas que comienzan con '+') y debe ser accionable.
+
+El diff del PR tendrá la siguiente estructura:
 ======
 ## File: 'src/file1.py'
 
 @@ ... @@ def func1():
 __new hunk__
-11  unchanged code line0 in the PR
-12  unchanged code line1 in the PR
-13 +new code line2 added in the PR
-14  unchanged code line3 in the PR
+11  línea de código sin cambio 0 en el PR
+12  línea de código sin cambio 1 en el PR
+13 +nueva línea de código 2 agregada en el PR
+14  línea de código sin cambio 3 en el PR
 __old hunk__
- unchanged code line0
- unchanged code line1
--old code line2 removed in the PR
- unchanged code line3
+ línea de código sin cambio 0
+ línea de código sin cambio 1
+-línea de código antigua 2 eliminada en el PR
+ línea de código sin cambio 3
  __existing_comment_thread__
- presubmitai: This is a comment on the code
- user2: This is a reply to the comment above
+ presubmitai: Este es un comentario sobre el código
+ user2: Esta es una respuesta al comentario anterior
  __existing_comment_thread__
- presubmitai: This is a comment on some other parts of the code
- user2: This is a reply to the above comment
-
+ presubmitai: Este es un comentario sobre otras partes del código
+ user2: Esta es una respuesta al comentario anterior
 
 @@ ... @@ def func2():
 __new hunk__
- unchanged code line4
-+new code line5 removed in the PR
- unchanged code line6
+ línea de código sin cambio 4
++nueva línea de código 5 eliminada en el PR
+ línea de código sin cambio 6
 
 ## File: 'src/file2.py'
 ...
 ======
 
-- In the format above, the diff is organized into separate '__new hunk__' and '__old hunk__' sections for each code chunk. '__new hunk__' contains the updated code, while '__old hunk__' shows the removed code. If no code was removed in a specific chunk, the __old hunk__ section will be omitted.
-- We also added line numbers for the '__new hunk__' code, to help you refer to the code lines in your suggestions. These line numbers are not part of the actual code, and should only used for reference.
-- Code lines are prefixed with symbols ('+', '-', ' '). The '+' symbol indicates new code added in the PR, the '-' symbol indicates code removed in the PR, and the ' ' symbol indicates unchanged code. The review should address new code added in the PR code diff (lines starting with '+')
-- Use markdown formatting for your comments.
-- Do not return comments that are even slightly similar to other existing comments for the same hunk diffs.
-- If you cannot find any actionable comments, return an empty array.
-- VERY IMPORTANT: Keep in mind you're only seeing part of the code, and the code might be incomplete. Do not make assumptions about the code outside the diff.
+- En el formato anterior, el diff está organizado en secciones separadas de '__new hunk__' y '__old hunk__' para cada bloque de código. '__new hunk__' contiene el código actualizado, mientras que '__old hunk__' muestra el código eliminado. Si no se eliminó código en un bloque específico, la sección __old hunk__ se omitirá.
+- También agregamos números de línea para el código de '__new hunk__', para ayudarte a referirte a las líneas de código en tus sugerencias. Estos números de línea no forman parte del código real y solo deben usarse como referencia.
+- Las líneas de código están prefijadas con símbolos ('+', '-', ' '). El símbolo '+' indica nuevo código agregado en el PR, el símbolo '-' indica código eliminado en el PR, y el símbolo ' ' indica código sin cambio. La revisión debe abordar el nuevo código agregado en el diff del PR (líneas que comienzan con '+')
+- Usa formato markdown para tus comentarios.
+- No devuelvas comentarios que sean incluso ligeramente similares a otros comentarios existentes para los mismos diffs de hunk.
+- Si no puedes encontrar ningún comentario accionable, devuelve un array vacío.
+- MUY IMPORTANTE: Ten en cuenta que solo estás viendo parte del código, y el código podría estar incompleto. No hagas suposiciones sobre el código fuera del diff.
 
 ${config.styleGuideRules && config.styleGuideRules.length > 0
-      ? `Guidelines for the review, such as style guides, conventions, or best practices, violating the following guidelines should result in a critical comment:
+      ? `Pautas para la revisión, como guías de estilo, convenciones o mejores prácticas, la violación de las siguientes pautas debe resultar en un comentario crítico:
 ${config.styleGuideRules}`
       : ''}
-</IMPORTANT INSTRUCTIONS>
+</INSTRUCCIONES IMPORTANTES>
 
-<EXAMPLE>
+<EJEMPLO>
 {
     "review": {
     ...
     }
     "comments": [
     {
-        content: "There's a typo in "upgorading" which should be "upgrading".",
-        header: "Fix typo in error message.",
+        content: "Hay un error tipográfico en "upgorading" que debería ser "upgrading".",
+        header: "Corregir error tipográfico en el mensaje de error.",
         label: "typo",
         critical: false,
         highlighted_code: "      No active plan. Enable code reviews by upgorading to a Pro plan",
         ...
     },
     {
-        content: "Variable 'user_id' is used before it's defined. Consider moving the function call to the end of the file.",
-        header: "Potential runtime error in the code.",
+        content: "La variable 'user_id' se usa antes de estar definida. Considera mover la llamada a la función al final del archivo.",
+        header: "Posible error en tiempo de ejecución en el código.",
         label: "bug",
         critical: true,
         ...
@@ -211,26 +210,26 @@ ${config.styleGuideRules}`
     ...
     ]
 }
-</EXAMPLE>
+</EJEMPLO>
 `;
 
 
   let userPrompt = `
-<PR title>
+<Título del PR>
 ${pr.prTitle}
-</PR title>
+</Título del PR>
 
-<PR Description>
+<Descripción del PR>
 ${pr.prDescription}
-</PR Description>
+</Descripción del PR>
 
-<PR Summary>
+<Resumen del PR>
 ${pr.prSummary}
-</PR Summary>
+</Resumen del PR>
 
-<PR File Diffs>
+<Diffs de Archivos del PR>
 ${pr.files.map((file) => generateFileCodeDiff(file)).join("\n\n")}
-</PR File Diffs>
+</Diffs de Archivos del PR>
 `;
 
   const commentSchema = z.object({
@@ -329,15 +328,15 @@ export async function runReviewCommentPrompt({
   commentThread,
   commentFileDiff,
 }: ReviewCommentPrompt): Promise<ReviewCommentResponse> {
-  let systemPrompt = `You are a helpful senior software engineer that reviews comments on Git Pull Requests (PRs). Your task is to provide a response to a comment on a PR review. The comment might be part of a longer comment thread, so make sure to respond to the specific comment and not the whole thread.
+  let systemPrompt = `Eres un ingeniero de software senior que revisa comentarios en Pull Requests (PRs) de Git. Tu tarea es proporcionar una respuesta a un comentario en la revisión de un PR. El comentario podría ser parte de un hilo de comentarios más largo, así que asegúrate de responder al comentario específico y no a todo el hilo.
 
-The comment thread is specific to a line or multiple lines of code in a specific file. Keep that in mind when writing your response, but do not assume the code is complete or correct. Also, the comment might request you to suggest some changes or improvements outside the code snippet, so judge accordingly.
+El hilo de comentarios es específico de una línea o múltiples líneas de código en un archivo específico. Ten eso en cuenta al escribir tu respuesta, pero no asumas que el código es completo o correcto. Además, el comentario podría solicitarte que sugieras algunos cambios o mejoras fuera del fragmento de código, así que juzga en consecuencia.
 
-In your response, return the exact text of your comment, in markdown, starting by mentioning the @user who made the comment. Your response will be used as a comment on the PR, so make sure it's easy to understand and actionable.
+En tu respuesta, devuelve el texto exacto de tu comentario, en markdown, comenzando por mencionar al @user que hizo el comentario. Tu respuesta se usará como un comentario en el PR, así que asegúrate de que sea fácil de entender y accionable.
 
-Comments from @presubmit are yours.
+Los comentarios de @presubmit son tuyos.
 
-IMPORTANT: Do not respond with generic comments like "Thanks for the PR!" or "LGTM" or "Let me know if you need any help". If the input comment is not actionable, return an empty string. Do not offer to help unless asked.
+IMPORTANTE: No respondas con comentarios genéricos como "¡Gracias por el PR!" o "LGTM" o "Avísame si necesitas ayuda". Si el comentario de entrada no es accionable, devuelve una cadena vacía. No ofrezcas ayuda a menos que se te pida.
 `;
 
   const startLine =
@@ -346,26 +345,26 @@ IMPORTANT: Do not respond with generic comments like "Thanks for the PR!" or "LG
 
 
   let userPrompt = `
-Below you'll see the full comment thread, but you should focus specifically on the last comment.
-<Comment Thread>
+A continuación verás el hilo completo de comentarios, pero debes enfocarte específicamente en el último comentario.
+<Hilo de Comentarios>
 ${commentThread.comments
       .map(
         (comment) =>
           `<author>@${comment.user.login}</author>\n<comment>${comment.body}</comment>`
       )
       .join("\n")}
-</Comment Thread>
+</Hilo de Comentarios>
 
-<Comment Scope>
-  <Lines>${startLine} - ${endLine}</Lines>
+<Alcance del Comentario>
+  <Líneas>${startLine} - ${endLine}</Líneas>
   <Hunk>
     ${commentThread.comments[0].diff_hunk}
   </Hunk>
-</Comment Scope>
+</Alcance del Comentario>
 
-<Comment File Diff>
+<Diff del Archivo del Comentario>
 ${generateFileCodeDiff(commentFileDiff)}
-</Comment File Diff>
+</Diff del Archivo del Comentario>
 `;
 
   const schema = z.object({

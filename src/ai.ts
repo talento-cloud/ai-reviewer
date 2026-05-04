@@ -1,14 +1,17 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createVertex } from "@ai-sdk/google-vertex";
 import { createOpenAI } from "@ai-sdk/openai";
 import { z } from "zod";
 import config from "./config";
 import { AISDKProvider } from "./providers/ai-sdk";
 import { SAPAIProvider } from "./providers/sapaicore";
+import { VertexAIProvider } from "./providers/vertex-ai";
 
 export enum AIProviderType {
   AI_SDK = "ai-sdk",
   SAP_AI_SDK = "sap-ai-sdk",
+  VERTEX_AI = "vertex-ai",
 }
 
 const LLM_MODELS: Record<AIProviderType, ModelConfig[]> = {
@@ -151,6 +154,33 @@ const LLM_MODELS: Record<AIProviderType, ModelConfig[]> = {
       createAi: createGoogleGenerativeAI,
     },
   ],
+  [AIProviderType.VERTEX_AI]: [
+    // Google Vertex AI Gemini models https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/gemini
+    {
+      name: "gemini-2.5-flash",
+      createAi: createVertex,
+    },
+    {
+      name: "gemini-2.5-pro",
+      createAi: createVertex,
+    },
+    {
+      name: "gemini-2.0-flash-001",
+      createAi: createVertex,
+    },
+    {
+      name: "gemini-1.5-flash",
+      createAi: createVertex,
+    },
+    {
+      name: "gemini-1.5-pro",
+      createAi: createVertex,
+    },
+    {
+      name: "gemini-2.5-flash-preview-05-20",
+      createAi: createVertex,
+    },
+  ],
   [AIProviderType.SAP_AI_SDK]: [
     {
       name: "anthropic--claude-3.7-sonnet",
@@ -232,6 +262,8 @@ class AIProviderFactory {
         return new AISDKProvider(modelConfig.createAi, modelConfig.name);
       case AIProviderType["SAP_AI_SDK"]:
         return new SAPAIProvider(modelConfig.name);
+      case AIProviderType["VERTEX_AI"]:
+        return new VertexAIProvider(modelConfig.name);
       default:
         throw new Error(`Unknown provider: ${provider}`);
     }
