@@ -11,6 +11,20 @@ runs:
   main: "dist/index.js"
 
 inputs:
+  llm_api_key:
+    required: true
+    description: 'API key for the LLM provider (e.g., Anthropic, OpenAI, Google). Not required when using SAP AI SDK.'
+  llm_model:
+    required: true
+    description: 'LLM model to use (e.g., claude-sonnet-4-5, gpt-4o, gemini-2.5-pro). See docs for supported models.'
+  llm_provider:
+    required: false
+    description: 'LLM provider to use: ai-sdk (default), sap-ai-sdk, or vertex-ai'
+    default: 'ai-sdk'
+  llm_base_url:
+    required: false
+    description: 'Base URL for OpenAI-compatible providers (e.g., https://openrouter.ai/api/v1). Only used with ai-sdk.'
+    default: ''
   style_guide_rules:
     required: false
     description: 'Custom style guide rules that will be enforced during review by generating critical comments'

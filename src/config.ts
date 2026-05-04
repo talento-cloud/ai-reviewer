@@ -37,7 +37,7 @@ export class Config {
       console.log(`Using default LLM_PROVIDER '${this.llmProvider}'`);
     }
 
-    this.llmApiKey = process.env.LLM_API_KEY;
+    this.llmApiKey = process.env.LLM_API_KEY || getInput('llm_api_key');
     const isSapAiSdk = this.llmProvider === AIProviderType.SAP_AI_SDK;
     // SAP AI SDK does not require an API key
     if (!this.llmApiKey && !isSapAiSdk) {
