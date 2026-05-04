@@ -34,7 +34,7 @@ export class VertexAIProvider implements AIProvider {
       ...(credentials && { googleAuthOptions: { credentials } }),
     });
 
-    const jsonInstruction = `\n\nYou must respond with a single valid JSON object that matches this schema. Do not include any other text, markdown formatting, or code blocks. Only output the raw JSON object.`;
+    const fullPrompt = `${system || ''}\n\n${prompt}\n\nYou must respond with a single valid JSON object that matches this schema. Do not include any other text, markdown formatting, or code blocks. Only output the raw JSON object.`;
 
     // Retry logic with increasing safety thresholds
     const safetySettingsAttempts = [
@@ -62,9 +62,8 @@ export class VertexAIProvider implements AIProvider {
       try {
         const { text, usage, finishReason, providerMetadata } = await generateText({
           model: vertex(this.modelName),
-          prompt: prompt + jsonInstruction,
+          prompt: fullPrompt,
           temperature: temperature || 0,
-          system: system,
           maxTokens: 8192,
           providerOptions: {
             vertex: {
