@@ -40,6 +40,7 @@ export class VertexAIProvider implements AIProvider {
       temperature: temperature || 0,
       system,
       schema,
+      mode: 'json',
     });
 
     if (process.env.DEBUG) {
