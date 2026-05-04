@@ -166,12 +166,85 @@ export class VertexAIProvider implements AIProvider {
     }
 
     try {
-      const parsed = JSON.parse(jsonText);
+      let parsed = JSON.parse(jsonText);
+      parsed = this.flexibleParse(parsed, schema);
       return schema.parse(parsed);
     } catch (e) {
       throw new Error(
         `Failed to parse or validate response from Vertex AI. Response: "${text}". Error: ${e instanceof Error ? e.message : String(e)}`
       );
     }
+  }
+
+  /**
+   * Attempts to fix common schema mismatches before Zod validation.
+   * Handles cases where the LLM returns:
+   * - A string instead of an array (wraps in array)
+   * - An object/dict instead of an array of objects (converts to array)
+   */
+  private flexibleParse(parsed: any, schema: z.ZodObject<any, any>): any {
+    if (!parsed || typeof parsed !== "object") {
+      return parsed;
+    }
+
+    const shape = schema.shape || (schema._def?.shape?.() as Record<string, z.ZodTypeAny>);
+    if (!shape) {
+      return parsed;
+    }
+
+    const result = { ...parsed };
+
+    for (const [key, zodType] of Object.entries(shape)) {
+      const value = result[key];
+      if (value === undefined || value === null) {
+        continue;
+      }
+
+      // Check if Zod expects an array
+      const isArray = zodType instanceof z.ZodArray ||
+        (zodType._def?.typeName === "ZodArray");
+
+      if (isArray) {
+        // If value is a string, wrap it in an array
+        if (typeof value === "string") {
+          result[key] = [value];
+          continue;
+        }
+
+        // If value is an object (dict) instead of array, try to convert
+        if (typeof value === "object" && !Array.isArray(value)) {
+          const arrayValue = Object.entries(value).map(([k, v]) => {
+            if (typeof v === "string") {
+              // Common pattern: { filename: summary } -> { filename, summary }
+              return { filename: k, summary: v, title: v.slice(0, 50) };
+            }
+            if (typeof v === "object" && v !== null) {
+              return { filename: k, ...v };
+            }
+            return v;
+          });
+          result[key] = arrayValue;
+        }
+      }
+
+      // Recursively fix nested objects
+      if (zodType instanceof z.ZodObject && typeof value === "object" && !Array.isArray(value)) {
+        result[key] = this.flexibleParse(value, zodType);
+      }
+
+      // Fix items inside arrays
+      if (isArray && Array.isArray(value)) {
+        const itemType = (zodType as z.ZodArray<any>).element;
+        if (itemType instanceof z.ZodObject) {
+          result[key] = value.map((item) =>
+            typeof item === "object" && item !== null
+              ? this.flexibleParse(item, itemType)
+              : item
+          );
+        }
+      }
+    }
+
+    return result;
   }
 }

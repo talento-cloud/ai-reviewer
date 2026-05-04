@@ -158,4 +158,70 @@ describe("VertexAIProvider", () => {
       })
     ).rejects.toThrow("Vertex AI returned empty text");
   });
+
+  it("should fix string-to-array mismatch", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: '{"type":"feat","name":"test"}' }],
+            },
+            finishReason: "STOP",
+          },
+        ],
+      }),
+    });
+
+    const provider = createProviderWithMockToken();
+    const schema = z.object({
+      type: z.array(z.string()),
+      name: z.string(),
+    });
+
+    const result = await provider.runInference({
+      prompt: "Generate a test object",
+      schema,
+    });
+
+    expect(result).toEqual({ type: ["feat"], name: "test" });
+  });
+
+  it("should fix object-to-array mismatch for files", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: '{"files":{"a.ts":"summary A","b.ts":"summary B"},"title":"test"}' }],
+            },
+            finishReason: "STOP",
+          },
+        ],
+      }),
+    });
+
+    const provider = createProviderWithMockToken();
+    const fileSchema = z.object({
+      filename: z.string(),
+      summary: z.string(),
+      title: z.string(),
+    });
+    const schema = z.object({
+      files: z.array(fileSchema),
+      title: z.string(),
+    });
+
+    const result = await provider.runInference({
+      prompt: "Generate a test object",
+      schema,
+    });
+
+    expect(result.files).toHaveLength(2);
+    expect(result.files[0]).toMatchObject({ filename: "a.ts", summary: "summary A" });
+    expect(result.files[1]).toMatchObject({ filename: "b.ts", summary: "summary B" });
+    expect(result.title).toBe("test");
+  });
 });
