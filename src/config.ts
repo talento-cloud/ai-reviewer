@@ -39,8 +39,9 @@ export class Config {
 
     this.llmApiKey = process.env.LLM_API_KEY || getInput('llm_api_key');
     const isSapAiSdk = this.llmProvider === AIProviderType.SAP_AI_SDK;
-    // SAP AI SDK does not require an API key
-    if (!this.llmApiKey && !isSapAiSdk) {
+    const isVertexAi = this.llmProvider === AIProviderType.VERTEX_AI;
+    // SAP AI SDK and Vertex AI do not require an API key
+    if (!this.llmApiKey && !isSapAiSdk && !isVertexAi) {
       throw new Error("LLM_API_KEY is not set");
     }
 
@@ -72,7 +73,6 @@ export class Config {
     }
 
     // Vertex AI configuration validation
-    const isVertexAi = this.llmProvider === AIProviderType.VERTEX_AI;
     if (isVertexAi) {
       if (!this.llmVertexProjectId) {
         throw new Error(
