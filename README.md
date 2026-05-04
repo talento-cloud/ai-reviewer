@@ -82,6 +82,8 @@ on:
     types: [opened, synchronize]
   pull_request_review_comment:
     types: [created]
+  issue_comment:
+    types: [created]
 
 jobs:
   review:
@@ -99,6 +101,14 @@ jobs:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LLM_MODEL: "claude-sonnet-4-5"
 ```
+
+### Interactive Comments
+
+You can interact with the AI reviewer by mentioning `@presubmit` or `@presubmitai` in:
+- **Pull request review comments** (comments on specific lines of code)
+- **General PR comments** (comments on the pull request itself)
+
+The AI will respond to your questions or requests for clarification. For general PR comments, make sure to mention `@presubmit` to trigger a response.
 
 The action requires:
 

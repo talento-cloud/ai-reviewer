@@ -10,6 +10,7 @@ async function main(): Promise<void> {
         handlePullRequest();
         break;
       case "pull_request_review_comment":
+      case "issue_comment":
         handlePullRequestComment();
         break;
       default:

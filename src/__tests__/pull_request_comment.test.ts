@@ -58,10 +58,19 @@ describe('Pull Request Comment Handler', () => {
     const mockOctokit = {
       rest: {
         pulls: {
+          get: jest.fn().mockResolvedValue({
+            data: {
+              number: 456,
+              head: { sha: 'head-sha' }
+            }
+          }),
           listFiles: jest.fn().mockResolvedValue({
             data: [{ filename: 'test.ts', status: 'modified', patch: '@@ -1,1 +1,2 @@\n test\n+added' }]
           }),
           createReviewComment: jest.fn().mockResolvedValue({})
+        },
+        issues: {
+          createComment: jest.fn().mockResolvedValue({})
         }
       }
     };
@@ -175,5 +184,97 @@ describe('Pull Request Comment Handler', () => {
     // Verify no response was posted
     const mockOctokit = (initOctokit as jest.Mock).mock.results[0].value;
     expect(mockOctokit.rest.pulls.createReviewComment).not.toHaveBeenCalled();
+  });
+
+  test('handles issue_comment event when mentioning @presubmit', async () => {
+    // Update mock context for issue_comment
+    (loadContext as jest.Mock).mockResolvedValue({
+      eventName: 'issue_comment',
+      repo: { owner: 'test-owner', repo: 'test-repo' },
+      payload: {
+        action: 'created',
+        comment: {
+          id: 789,
+          body: '@presubmit describe this better',
+          user: { login: 'test-user' }
+        },
+        issue: {
+          number: 456,
+          pull_request: { url: 'https://api.github.com/repos/test-owner/test-repo/pulls/456' }
+        }
+      }
+    });
+
+    await handlePullRequestComment();
+
+    // Get the mock octokit instance
+    const mockOctokit = (initOctokit as jest.Mock).mock.results[0].value;
+
+    // Verify PR was fetched
+    expect(mockOctokit.rest.pulls.get).toHaveBeenCalledWith({
+      owner: 'test-owner',
+      repo: 'test-repo',
+      pull_number: 456
+    });
+
+    // Verify prompt was called
+    expect(runReviewCommentPrompt).toHaveBeenCalled();
+
+    // Verify response was posted as general comment
+    expect(mockOctokit.rest.issues.createComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: 'test-owner',
+        repo: 'test-repo',
+        issue_number: 456
+      })
+    );
+  });
+
+  test('ignores issue_comment that does not mention @presubmit', async () => {
+    (loadContext as jest.Mock).mockResolvedValue({
+      eventName: 'issue_comment',
+      repo: { owner: 'test-owner', repo: 'test-repo' },
+      payload: {
+        action: 'created',
+        comment: {
+          id: 789,
+          body: 'Just a regular comment',
+          user: { login: 'test-user' }
+        },
+        issue: {
+          number: 456,
+          pull_request: { url: 'https://api.github.com/repos/test-owner/test-repo/pulls/456' }
+        }
+      }
+    });
+
+    await handlePullRequestComment();
+
+    // Verify no prompt was called
+    expect(runReviewCommentPrompt).not.toHaveBeenCalled();
+  });
+
+  test('ignores issue_comment on non-PR issues', async () => {
+    (loadContext as jest.Mock).mockResolvedValue({
+      eventName: 'issue_comment',
+      repo: { owner: 'test-owner', repo: 'test-repo' },
+      payload: {
+        action: 'created',
+        comment: {
+          id: 789,
+          body: '@presubmit help',
+          user: { login: 'test-user' }
+        },
+        issue: {
+          number: 456
+          // No pull_request property
+        }
+      }
+    });
+
+    await handlePullRequestComment();
+
+    // Verify no prompt was called
+    expect(runReviewCommentPrompt).not.toHaveBeenCalled();
   });
 }); 
