@@ -1,14 +1,80 @@
 import { AIProvider, InferenceConfig } from "@/ai";
 import config from "../config";
 import { info } from "@actions/core";
-import { generateText } from "ai";
-import { createVertex } from "@ai-sdk/google-vertex";
+import { z } from "zod";
 
 export class VertexAIProvider implements AIProvider {
   private modelName: string;
+  private credentials: any;
+  private accessToken: string | null = null;
+  private tokenExpiry: number = 0;
 
   constructor(modelName: string) {
     this.modelName = modelName;
+    if (config.llmVertexServiceAccountJson) {
+      try {
+        this.credentials = JSON.parse(config.llmVertexServiceAccountJson);
+      } catch (e) {
+        throw new Error(
+          `Invalid JSON in LLM_VERTEX_SERVICE_ACCOUNT_JSON: ${e instanceof Error ? e.message : String(e)}`
+        );
+      }
+    }
+  }
+
+  private async getAccessToken(): Promise<string> {
+    if (this.accessToken && Date.now() < this.tokenExpiry) {
+      return this.accessToken;
+    }
+
+    const jwt = await this.createJWT();
+    const response = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion: jwt,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to get access token: ${error}`);
+    }
+
+    const data = await response.json();
+    this.accessToken = data.access_token;
+    this.tokenExpiry = Date.now() + (data.expires_in - 60) * 1000; // Refresh 1 min before expiry
+    return this.accessToken;
+  }
+
+  private async createJWT(): Promise<string> {
+    const crypto = await import("crypto");
+
+    const header = Buffer.from(
+      JSON.stringify({
+        alg: "RS256",
+        typ: "JWT",
+        kid: this.credentials.private_key_id,
+      })
+    ).toString("base64url");
+
+    const now = Math.floor(Date.now() / 1000);
+    const claim = Buffer.from(
+      JSON.stringify({
+        iss: this.credentials.client_email,
+        scope: "https://www.googleapis.com/auth/cloud-platform",
+        aud: this.credentials.token_uri,
+        iat: now,
+        exp: now + 3600,
+      })
+    ).toString("base64url");
+
+    const sign = crypto.createSign("RSA-SHA256");
+    sign.update(`${header}.${claim}`);
+    const signature = sign.sign(this.credentials.private_key, "base64url");
+
+    return `${header}.${claim}.${signature}`;
   }
 
   async runInference({
@@ -17,96 +83,95 @@ export class VertexAIProvider implements AIProvider {
     system,
     schema,
   }: InferenceConfig): Promise<any> {
-    let credentials: any;
-    if (config.llmVertexServiceAccountJson) {
-      try {
-        credentials = JSON.parse(config.llmVertexServiceAccountJson);
-      } catch (e) {
-        throw new Error(
-          `Invalid JSON in LLM_VERTEX_SERVICE_ACCOUNT_JSON: ${e instanceof Error ? e.message : String(e)}`
-        );
-      }
-    }
+    const projectId = config.llmVertexProjectId || this.credentials?.project_id || "";
+    const location = config.llmVertexLocation || "us-central1";
+    const accessToken = await this.getAccessToken();
 
-    const vertex = createVertex({
-      project: config.llmVertexProjectId || "",
-      location: config.llmVertexLocation || "us-central1",
-      ...(credentials && { googleAuthOptions: { credentials } }),
-    });
+    const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${this.modelName}:generateContent`;
 
-    const fullPrompt = `${system || ''}\n\n${prompt}\n\nYou must respond with a single valid JSON object that matches this schema. Do not include any other text, markdown formatting, or code blocks. Only output the raw JSON object.`;
-
-    // Retry logic with increasing safety thresholds
-    const safetySettingsAttempts = [
-      // First attempt: block only high risk
-      [
-        { category: "HARM_CATEGORY_HATE_SPEECH" as const, threshold: "BLOCK_ONLY_HIGH" as const },
-        { category: "HARM_CATEGORY_DANGEROUS_CONTENT" as const, threshold: "BLOCK_ONLY_HIGH" as const },
-        { category: "HARM_CATEGORY_HARASSMENT" as const, threshold: "BLOCK_ONLY_HIGH" as const },
-        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT" as const, threshold: "BLOCK_ONLY_HIGH" as const },
-        { category: "HARM_CATEGORY_CIVIC_INTEGRITY" as const, threshold: "BLOCK_ONLY_HIGH" as const },
-      ],
-      // Second attempt: block none
-      [
-        { category: "HARM_CATEGORY_HATE_SPEECH" as const, threshold: "BLOCK_NONE" as const },
-        { category: "HARM_CATEGORY_DANGEROUS_CONTENT" as const, threshold: "BLOCK_NONE" as const },
-        { category: "HARM_CATEGORY_HARASSMENT" as const, threshold: "BLOCK_NONE" as const },
-        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT" as const, threshold: "BLOCK_NONE" as const },
-        { category: "HARM_CATEGORY_CIVIC_INTEGRITY" as const, threshold: "BLOCK_NONE" as const },
-      ],
+    const safetySettings = [
+      { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_CIVIC_INTEGRITY", threshold: "BLOCK_NONE" },
     ];
 
-    let lastError: Error | undefined;
+    const contents: any[] = [];
+    if (system) {
+      contents.push({
+        role: "user",
+        parts: [{ text: system }],
+      });
+    }
+    contents.push({
+      role: "user",
+      parts: [{ text: prompt + "\n\nYou must respond with a single valid JSON object. Do not include any other text, markdown formatting, or code blocks. Only output the raw JSON object." }],
+    });
 
-    for (const safetySettings of safetySettingsAttempts) {
-      try {
-        const { text, usage, finishReason, providerMetadata } = await generateText({
-          model: vertex(this.modelName),
-          prompt: fullPrompt,
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        contents,
+        generationConfig: {
           temperature: temperature || 0,
-          maxTokens: 8192,
-          providerOptions: {
-            vertex: {
-              safetySettings,
-              structuredOutputs: false,
-            },
-          },
-        });
+          maxOutputTokens: 8192,
+        },
+        safetySettings,
+      }),
+    });
 
-        if (process.env.DEBUG) {
-          info(`usage: \n${JSON.stringify(usage, null, 2)}`);
-          info(`finishReason: ${finishReason}`);
-          info(`providerMetadata: \n${JSON.stringify(providerMetadata, null, 2)}`);
-          info(`raw response: \n${text}`);
-        }
+    const data = await response.json();
 
-        // Check if response was blocked by safety settings
-        if (!text || text.trim().length === 0) {
-          const safetyRatings = providerMetadata?.vertex?.safetyRatings;
-          if (safetyRatings) {
-            console.warn(`Vertex AI response was empty. Safety ratings: ${JSON.stringify(safetyRatings)}`);
-          }
-          throw new Error("Vertex AI returned an empty response");
-        }
-
-        // Parse JSON from response (handle markdown code blocks)
-        let jsonText = text.trim();
-        const codeBlockMatch = jsonText.match(/^```(?:json)?\s*([\s\S]*?)```$/);
-        if (codeBlockMatch) {
-          jsonText = codeBlockMatch[1].trim();
-        }
-
-        const parsed = JSON.parse(jsonText);
-        return schema.parse(parsed);
-      } catch (e) {
-        lastError = e instanceof Error ? e : new Error(String(e));
-        console.warn(`Vertex AI attempt failed with safety settings, retrying... Error: ${lastError.message}`);
-        // Continue to next safety settings attempt
-      }
+    if (!response.ok) {
+      throw new Error(
+        `Vertex AI API error: ${response.status} ${JSON.stringify(data)}`
+      );
     }
 
-    throw new Error(
-      `Failed to get response from Vertex AI after all attempts. Last error: ${lastError?.message || "Unknown error"}`
-    );
+    if (process.env.DEBUG) {
+      info(`Vertex AI response: \n${JSON.stringify(data, null, 2)}`);
+    }
+
+    // Check for blocked content
+    if (data.promptFeedback?.blockReason) {
+      throw new Error(
+        `Vertex AI blocked the prompt: ${data.promptFeedback.blockReason}`
+      );
+    }
+
+    const candidate = data.candidates?.[0];
+    if (!candidate) {
+      throw new Error("Vertex AI returned no candidates");
+    }
+
+    if (candidate.finishReason && candidate.finishReason !== "STOP") {
+      console.warn(`Vertex AI finish reason: ${candidate.finishReason}`);
+    }
+
+    const text = candidate.content?.parts?.[0]?.text;
+    if (!text) {
+      throw new Error("Vertex AI returned empty text");
+    }
+
+    // Parse JSON from response (handle markdown code blocks)
+    let jsonText = text.trim();
+    const codeBlockMatch = jsonText.match(/^```(?:json)?\s*([\s\S]*?)```$/);
+    if (codeBlockMatch) {
+      jsonText = codeBlockMatch[1].trim();
+    }
+
+    try {
+      const parsed = JSON.parse(jsonText);
+      return schema.parse(parsed);
+    } catch (e) {
+      throw new Error(
+        `Failed to parse or validate response from Vertex AI. Response: "${text}". Error: ${e instanceof Error ? e.message : String(e)}`
+      );
+    }
   }
 }
