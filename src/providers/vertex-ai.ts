@@ -119,7 +119,7 @@ export class VertexAIProvider implements AIProvider {
         contents,
         generationConfig: {
           temperature: temperature || 0,
-          maxOutputTokens: 8192,
+          maxOutputTokens: 16384,
         },
         safetySettings,
       }),

@@ -62,14 +62,16 @@ Asegúrate de que cada archivo afectado esté resumido y sea parte del JSON devu
 `;
 
   const fileSchema = z.object({
-    filename: z.string().describe("The full file path of the relevant file"),
+    filename: z.string().default("").describe("The full file path of the relevant file"),
     summary: z
       .string()
+      .default("")
       .describe(
         "Concise summary of the file changes in markdown format (max 70 words)"
       ),
     title: z
       .string()
+      .default("")
       .describe(
         "An informative title for the changes in this file, describing its main theme (5-10 words)."
       ),
@@ -78,19 +80,23 @@ Asegúrate de que cada archivo afectado esté resumido y sea parte del JSON devu
   const schema = z.object({
     title: z
       .string()
+      .default("")
       .describe(
         "Informative title of the PR, describing its main theme (10 words max)"
       ),
     description: z
       .string()
+      .default("")
       .describe("Informative description of the PR, describing its main theme"),
     files: z
       .array(fileSchema)
+      .default([])
       .describe(
         "List of files affected in the PR and summaries of their changes"
       ),
     type: z
       .array(z.string())
+      .default(["OTHER"])
       .describe("One or more types that describe this PR's main theme. Example: BUG, TESTS, ENHANCEMENT, DOCUMENTATION, SECURITY, OTHER"),
   });
 
@@ -233,39 +239,49 @@ ${pr.files.map((file) => generateFileCodeDiff(file)).join("\n\n")}
 `;
 
   const commentSchema = z.object({
-    file: z.string().describe("The full file path of the relevant file"),
+    file: z
+      .string()
+      .default("")
+      .describe("The full file path of the relevant file"),
     start_line: z
       .number()
+      .default(0)
       .describe(
         "The relevant line number, from a '__new hunk__' section, where the comment starts (inclusive). Should correspond to the prefix of the first line in the 'highlighted_code' snippet. If comment spans a single line, it should equal the 'end_line'"
       ),
     end_line: z
       .number()
+      .default(0)
       .describe(
         "The relevant line number, from a '__new hunk__' section, where the comment ends (inclusive). Should correspond to the prefix of the last line in the 'highlighted_code' snippet. If comment spans a single line, it should equal the 'start_line'"
       ),
     content: z
       .string()
+      .default("")
       .describe(
         "An actionable comment to enhance, improve or fix the new code introduced in the PR. Use markdown formatting."
       ),
     header: z
       .string()
+      .default("")
       .describe(
         "A concise, single-sentence overview of the comment. Focus on the 'what'. Be general, and avoid method or variable names."
       ),
     highlighted_code: z
       .string()
+      .default("")
       .describe(
         "A short code snippet from a '__new hunk__' section that the comment is applicable for.Include only complete code lines, without line numbers. This snippet should represent the full specific PR code targeted for comment, at its first line should match 'startLine' and last line match 'endLine'. If the code snippet is a single line, that line should match both 'startLine' and 'endLine'"
       ),
     label: z
       .string()
+      .default("")
       .describe(
         "A single, descriptive label that best characterizes the suggestion type. Possible labels include 'security', 'possible bug', 'possible issue', 'performance', 'enhancement', 'best practice', 'maintainability', 'readability'. Other relevant labels are also acceptable."
       ),
     critical: z
       .boolean()
+      .default(false)
       .describe(
         "True if the comment is critical and the PR should not be merged without addressing the comment. False otherwise."
       ),
@@ -276,6 +292,7 @@ ${pr.files.map((file) => generateFileCodeDiff(file)).join("\n\n")}
       .number()
       .min(1)
       .max(5)
+      .default(3)
       .describe(
         "Estimate, on a scale of 1-5 (inclusive), the time and effort required to review this PR by an experienced and knowledgeable developer. 1 means short and easy review , 5 means long and hard review. Take into account the size, complexity, quality, and the needed changes of the PR code diff."
       ),
@@ -283,16 +300,19 @@ ${pr.files.map((file) => generateFileCodeDiff(file)).join("\n\n")}
       .number()
       .min(0)
       .max(100)
+      .default(50)
       .describe(
         "Rate this PR on a scale of 0-100 (inclusive), where 0 means the worst possible PR code, and 100 means PR code of the highest quality, without any bugs or performance issues, that is ready to be merged immediately and run in production at scale."
       ),
     has_relevant_tests: z
       .boolean()
+      .default(false)
       .describe(
         "True if the PR includes relevant tests added or updated. False otherwise."
       ),
     security_concerns: z
       .string()
+      .default("No")
       .describe(
         "Does this PR code introduce possible vulnerabilities such as exposure of sensitive information (e.g., API keys, secrets, passwords), or security concerns like SQL injection, XSS, CSRF, and others ? Answer 'No' (without explaining why) if there are no possible issues. If there are security concerns or issues, start your answer with a short header, such as: 'Sensitive information exposure: ...', 'SQL injection: ...' etc. Explain your answer. Be specific and give examples if possible"
       ),
@@ -307,11 +327,25 @@ ${pr.files.map((file) => generateFileCodeDiff(file)).join("\n\n")}
       ),
   });
 
-  return (await runPrompt({
+  const raw = await runPrompt({
     prompt: userPrompt,
     systemPrompt,
     schema,
-  })) as PullRequestReview;
+  });
+
+  // Filter out comments that are missing critical fields (can't be posted to GitHub)
+  const review = raw as PullRequestReview;
+  review.comments = review.comments.filter(
+    (c) =>
+      c.file &&
+      c.file.length > 0 &&
+      c.start_line > 0 &&
+      c.end_line > 0 &&
+      c.content &&
+      c.content.length > 0
+  );
+
+  return review;
 }
 
 type ReviewCommentPrompt = {
@@ -370,11 +404,13 @@ ${generateFileCodeDiff(commentFileDiff)}
   const schema = z.object({
     response_comment: z
       .string()
+      .default("")
       .describe(
         "Your response to the comment in markdown format, starting by mentioning the user"
       ),
     action_requested: z
       .boolean()
+      .default(false)
       .describe(
         "True if the input comment required an action from you. False otherwise."
       ),
