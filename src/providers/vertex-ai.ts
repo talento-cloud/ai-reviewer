@@ -195,24 +195,52 @@ export class VertexAIProvider implements AIProvider {
     const result = { ...parsed };
 
     for (const [key, zodType] of Object.entries(shape)) {
-      const value = result[key];
+      let value = result[key];
+
+      // If the expected key is missing, try common aliases
+      if (value === undefined) {
+        const aliases: Record<string, string[]> = {
+          files: ["file_summaries", "fileSummaries", "file_diffs", "fileDiffs"],
+          type: ["types", "pr_type", "prType"]
+        };
+        if (aliases[key]) {
+          for (const alias of aliases[key]) {
+            if (result[alias] !== undefined) {
+              value = result[alias];
+              result[key] = value;
+              delete result[alias];
+              break;
+            }
+          }
+        }
+      }
+
       if (value === undefined || value === null) {
         continue;
       }
 
+      let actualType = zodType;
+      while (
+        actualType._def?.typeName === "ZodDefault" ||
+        actualType._def?.typeName === "ZodOptional" ||
+        actualType._def?.typeName === "ZodNullable"
+      ) {
+        actualType = actualType._def.innerType;
+      }
+
       // Check if Zod expects an array
-      const isArray = zodType instanceof z.ZodArray ||
-        (zodType._def?.typeName === "ZodArray");
+      const isArray = actualType instanceof z.ZodArray ||
+        (actualType._def?.typeName === "ZodArray");
 
       if (isArray) {
         // If value is a string, wrap it in an array
         if (typeof value === "string") {
           result[key] = [value];
-          continue;
+          value = result[key]; // Update local value reference
         }
 
         // If value is an object (dict) instead of array, try to convert
-        if (typeof value === "object" && !Array.isArray(value)) {
+        else if (typeof value === "object" && !Array.isArray(value)) {
           const arrayValue = Object.entries(value).map(([k, v]) => {
             if (typeof v === "string") {
               // Common pattern: { filename: summary } -> { filename, summary }
@@ -224,21 +252,35 @@ export class VertexAIProvider implements AIProvider {
             return v;
           });
           result[key] = arrayValue;
+          value = result[key]; // Update local value reference
         }
       }
 
       // Recursively fix nested objects
-      if (zodType instanceof z.ZodObject && typeof value === "object" && !Array.isArray(value)) {
-        result[key] = this.flexibleParse(value, zodType);
+      const isObject = actualType instanceof z.ZodObject || 
+        (actualType._def?.typeName === "ZodObject");
+
+      if (isObject && typeof value === "object" && !Array.isArray(value)) {
+        result[key] = this.flexibleParse(value, actualType as z.ZodObject<any, any>);
       }
 
       // Fix items inside arrays
       if (isArray && Array.isArray(value)) {
-        const itemType = (zodType as z.ZodArray<any>).element;
-        if (itemType instanceof z.ZodObject) {
+        const itemType = (actualType as z.ZodArray<any>).element;
+        
+        let actualItemType = itemType;
+        while (
+          actualItemType._def?.typeName === "ZodDefault" ||
+          actualItemType._def?.typeName === "ZodOptional" ||
+          actualItemType._def?.typeName === "ZodNullable"
+        ) {
+          actualItemType = actualItemType._def.innerType;
+        }
+
+        if (actualItemType instanceof z.ZodObject || actualItemType._def?.typeName === "ZodObject") {
           result[key] = value.map((item) =>
             typeof item === "object" && item !== null
-              ? this.flexibleParse(item, itemType)
+              ? this.flexibleParse(item, actualItemType as z.ZodObject<any, any>)
               : item
           );
         }
